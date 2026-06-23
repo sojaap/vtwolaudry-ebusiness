@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 import { fetchLayanan, createTransaction } from '@/db/laundryService';
+import { supabase } from '@/db/supabaseClient';
 
 function OrderCalculatorContent() {
   const searchParams = useSearchParams();
@@ -48,7 +49,19 @@ function OrderCalculatorContent() {
       if (data.toko.length > 0) setSelectedToko(data.toko[0].idToko);
       if (data.parfum.length > 0) setSelectedParfum(data.parfum[0].idParfum);
 
-      // Initial selected package from query param
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const activeUser = {
+          id: session.user.id,
+          name: session.user.user_metadata?.name || session.user.email.split('@')[0],
+          phone: session.user.user_metadata?.phone || `62812${session.user.email.split('@')[0].replace(/\D/g, '') || '9999'}`
+        };
+
+        setCurrentUser(activeUser);
+        setCustomerName(activeUser.name);
+        setCustomerPhone(activeUser.phone);
+      }
+
       const pkgParam = searchParams.get('package');
       if (pkgParam) {
         const match = data.layanan.find((l) => (l.id_layanan || l.idLayanan) === pkgParam);
@@ -57,7 +70,7 @@ function OrderCalculatorContent() {
         }
       } else {
         if (data.layanan.length > 0) {
-          setSelectedItems([{ idLayanan: data.layanan[0].id_layanan || data.layanan[0].idLayanan, kuantitas: 1 }]);
+          setSelectedItems([{ idLayanan: data.layanan[0].id_lay_laundry || data.layanan[0].id_layanan || data.layanan[0].idLayanan, kuantitas: 1 }]);
         }
       }
     }
@@ -88,7 +101,6 @@ function OrderCalculatorContent() {
     }
 
     const defaultId = db.layanan[0].id_lay_laundry || db.layanan[0].id_layanan || db.layanan[0].idLayanan;
-
     setSelectedItems([...selectedItems, { idLayanan: defaultId, kuantitas: 1 }]);
   };
 
@@ -131,7 +143,7 @@ function OrderCalculatorContent() {
 
     const transactionData = {
       idParfum: selectedParfum,
-      idPelanggan: 'GUEST_USER',
+      idPelanggan: currentUser ? currentUser.id : 'GUEST_USER',
       idKasir: db.kasir[0].idKasir,
       idToko: selectedToko,
       grand_total: grandTotal,
