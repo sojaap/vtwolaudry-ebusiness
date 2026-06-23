@@ -4,7 +4,8 @@ import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
-import { getDb, updateTransactionDelivery } from '@/db/mockDb';
+import { getDb } from '@/db/mockDb';
+import { supabase } from '@/db/supabaseClient';
 
 function TrackingContent() {
   const searchParams = useSearchParams();
@@ -23,7 +24,7 @@ function TrackingContent() {
   // Load DB
   useEffect(() => {
     setDb(getDb());
-    
+
     // Auto-search if parameter exists
     const query = searchParams.get('struk');
     if (query) {
@@ -37,30 +38,42 @@ function TrackingContent() {
     handleSearch(strukQuery);
   };
 
-  const handleSearch = (receiptNo) => {
+  const handleSearch = async (receiptNo) => {
     setErrorMsg('');
     setSearchResult(null);
     setItemsResult([]);
 
-    const data = getDb();
-    const trx = data.trxLaundry.find(
-      (t) => t.no_struk.toUpperCase() === receiptNo.trim().toUpperCase()
-    );
+    const cleanedReceipt = receiptNo.trim();
 
-    if (!trx) {
-      setErrorMsg(`No receipt found matching "${receiptNo}". Please check the receipt number and try again.`);
+    const { data: trx, error: trxError } = await supabase
+      .from('trx_laundry')
+      .select('*')
+      .ilike('no_struk', cleanedReceipt)
+      .maybeSingle();
+
+    if (trxError || !trx) {
+      setErrorMsg(`No receipt found matching "${cleanedReceipt}". Please check the receipt number and try again.`);
       return;
     }
 
-    // Load related items
-    const items = data.trxLayanan.filter((i) => i.no_struk === trx.no_struk).map((item) => {
-      const lay = data.layanan.find((l) => l.idLayanan === item.idLayanan);
-      return {
-        ...item,
-        nama_layanan: lay ? lay.nama_layanan : 'Unknown',
-        satuan: lay ? lay.satuan : '',
-      };
-    });
+    const { data: trxItems, error: itemsError } = await supabase
+      .from('trx_layanan')
+      .select('*')
+      .eq('no_struk', trx.no_struk);
+
+    const localDb = getDb();
+    let items = [];
+
+    if (!itemsError && trxItems) {
+      items = trxItems.map((item) => {
+        const lay = localDb.layanan.find((l) => (l.id_lay_laundry || l.id_layanan || l.idLayanan) === item.id_layanan);
+        return {
+          ...item,
+          nama_layanan: lay ? lay.nama_layanan : 'Laundry Service Item',
+          satuan: lay ? lay.satuan : 'kg',
+        };
+      });
+    }
 
     setSearchResult(trx);
     setItemsResult(items);
@@ -72,24 +85,29 @@ function TrackingContent() {
     setEditDelivery(false);
   };
 
-  const handleSaveDelivery = () => {
+  const handleSaveDelivery = async () => {
     if (deliveryType === 'Home Delivery' && !deliveryAddress.trim()) {
       alert('Please fill out the delivery address.');
       return;
     }
 
-    const updatedTrx = updateTransactionDelivery(
-      searchResult.no_struk,
-      deliveryType,
-      deliveryType === 'Home Delivery' ? deliveryAddress : '',
-      deliveryType === 'Home Delivery' ? deliveryStatus : 'Not Started'
-    );
+    const { data: updatedTrx, error: updateError } = await supabase
+      .from('trx_laundry')
+      .update({
+        delivery_type: deliveryType,
+        delivery_address: deliveryType === 'Home Delivery' ? deliveryAddress : '',
+        delivery_status: deliveryType === 'Home Delivery' ? deliveryStatus : 'Not Started'
+      })
+      .eq('no_struk', searchResult.no_struk)
+      .select()
+      .single();
 
-    setSearchResult(updatedTrx);
-    setEditDelivery(false);
-    
-    // Reload mock db state
-    setDb(getDb());
+    if (!updateError && updatedTrx) {
+      setSearchResult(updatedTrx);
+      setEditDelivery(false);
+    } else {
+      alert('Failed to update delivery settings on cloud database.');
+    }
   };
 
   const trackingSteps = [
@@ -100,12 +118,11 @@ function TrackingContent() {
     { label: 'Completed', desc: 'Order picked up or successfully delivered', statusKey: 'Completed' },
   ];
 
-  // Helper to determine step status: 'completed', 'current', or 'upcoming'
   const getStepStatus = (index) => {
     if (!searchResult) return 'upcoming';
     const statusOrder = ['Pickup', 'Wash & Dry', 'Fold', 'Delivery', 'Completed'];
     const currentIdx = statusOrder.indexOf(searchResult.status);
-    
+
     if (index < currentIdx) return 'completed';
     if (index === currentIdx) return 'current';
     return 'upcoming';
@@ -116,7 +133,7 @@ function TrackingContent() {
       <Navbar />
 
       <main className="flex-grow max-w-4xl w-full mx-auto px-4 py-12 sm:px-6 lg:px-8 mb-24">
-        
+
         {/* Search Bar section */}
         <div className="bg-white rounded-3xl p-8 border border-slate-100 shadow-sm text-center space-y-6">
           <div>
@@ -133,7 +150,7 @@ function TrackingContent() {
               value={strukQuery}
               onChange={(e) => setStrukQuery(e.target.value)}
               placeholder="e.g. TRX001"
-              className="flex-grow px-5 py-3 rounded-2xl border-2 border-slate-200 focus:outline-none focus:border-sky-400 font-semibold tracking-wider placeholder:font-normal uppercase text-sm"
+              className="flex-grow px-5 py-3 rounded-2xl border-2 border-slate-200 focus:outline-none focus:border-sky-400 font-semibold tracking-wider placeholder:font-normal uppercase text-sm text-slate-900 bg-white"
               required
             />
             <button
@@ -154,7 +171,7 @@ function TrackingContent() {
         {/* Search Results section */}
         {searchResult && (
           <div className="mt-8 space-y-8">
-            
+
             {/* 1. Progress Steps Timeline */}
             <div className="bg-white rounded-3xl p-8 border border-slate-100 shadow-sm">
               <h2 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-3 mb-6">
@@ -162,24 +179,20 @@ function TrackingContent() {
               </h2>
 
               <div className="relative">
-                {/* Connecting Line (Horizontal on Desktop, Vertical on Mobile) */}
                 <div className="absolute left-[27px] top-6 bottom-6 w-0.5 bg-slate-200 md:left-6 md:right-6 md:top-6 md:h-0.5 md:w-auto"></div>
 
-                {/* Steps List */}
                 <div className="relative flex flex-col md:flex-row justify-between gap-8 md:gap-4 z-10">
                   {trackingSteps.map((step, idx) => {
                     const stepStatus = getStepStatus(idx);
-                    
+
                     return (
                       <div key={idx} className="flex md:flex-col items-start md:items-center text-left md:text-center md:flex-1 group">
-                        {/* Dot indicator */}
-                        <div className={`w-14 h-14 rounded-full flex items-center justify-center font-bold text-sm border-4 transition-all duration-300 md:mb-4 shrink-0 shadow-sm ${
-                          stepStatus === 'completed'
-                            ? 'bg-sky-500 border-sky-200 text-white shadow-sky-100'
-                            : stepStatus === 'current'
+                        <div className={`w-14 h-14 rounded-full flex items-center justify-center font-bold text-sm border-4 transition-all duration-300 md:mb-4 shrink-0 shadow-sm ${stepStatus === 'completed'
+                          ? 'bg-sky-500 border-sky-200 text-white shadow-sky-100'
+                          : stepStatus === 'current'
                             ? 'bg-white border-sky-400 text-sky-600 scale-110 shadow-lg shadow-sky-100 ring-4 ring-sky-50'
                             : 'bg-slate-100 border-slate-200 text-slate-400'
-                        }`}>
+                          }`}>
                           {stepStatus === 'completed' ? (
                             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
@@ -189,11 +202,9 @@ function TrackingContent() {
                           )}
                         </div>
 
-                        {/* Labels */}
                         <div className="ml-4 md:ml-0 md:px-2">
-                          <h3 className={`font-extrabold text-sm ${
-                            stepStatus === 'current' ? 'text-sky-600' : 'text-slate-800'
-                          }`}>
+                          <h3 className={`font-extrabold text-sm ${stepStatus === 'current' ? 'text-sky-600' : 'text-slate-800'
+                            }`}>
                             {step.label}
                           </h3>
                           <p className="text-xs text-slate-400 mt-0.5 line-clamp-2 leading-relaxed">
@@ -209,8 +220,6 @@ function TrackingContent() {
 
             {/* 2. Order Breakdown and Delivery Option Grid */}
             <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-start">
-              
-              {/* Receipt Details Breakdown (7 cols) */}
               <div className="bg-white rounded-3xl p-8 border border-slate-100 shadow-sm md:col-span-7 space-y-6">
                 <div className="flex justify-between items-center border-b border-slate-100 pb-3">
                   <h3 className="text-base font-bold text-slate-800">Order Items</h3>
@@ -225,11 +234,11 @@ function TrackingContent() {
                       <div>
                         <span className="font-semibold text-slate-800">{item.nama_layanan}</span>
                         <span className="block text-xs text-slate-400">
-                          {item.kuantitas} x IDR {(item.total_harga / item.kuantitas).toLocaleString()} / {item.satuan}
+                          {item.kuantitas} {item.satuan}
                         </span>
                       </div>
                       <span className="font-bold text-slate-800">
-                        IDR {item.total_harga.toLocaleString()}
+                        IDR {item.total_harga ? item.total_harga.toLocaleString() : '0'}
                       </span>
                     </div>
                   ))}
@@ -238,20 +247,19 @@ function TrackingContent() {
                 <div className="space-y-2 border-t border-slate-100 pt-4 text-sm">
                   <div className="flex justify-between text-slate-500">
                     <span>Subtotal</span>
-                    <span>IDR {searchResult.grand_total.toLocaleString()}</span>
+                    <span>IDR {searchResult.grand_total ? searchResult.grand_total.toLocaleString() : '0'}</span>
                   </div>
                   <div className="flex justify-between text-slate-500">
                     <span>DP Paid</span>
-                    <span className="text-emerald-600 font-medium">- IDR {searchResult.dp.toLocaleString()}</span>
+                    <span className="text-emerald-600 font-medium">- IDR {searchResult.dp ? searchResult.dp.toLocaleString() : '0'}</span>
                   </div>
                   <div className="flex justify-between text-lg font-black text-slate-800 border-t border-slate-100 pt-3">
                     <span>Remaining Balance</span>
-                    <span className="text-rose-500">IDR {searchResult.sisa.toLocaleString()}</span>
+                    <span className="text-rose-500">IDR {searchResult.sisa ? searchResult.sisa.toLocaleString() : '0'}</span>
                   </div>
                 </div>
               </div>
 
-              {/* Delivery Integration Card (5 cols) */}
               <div className="bg-[#E0F7FF] rounded-3xl p-6 border border-sky-100 md:col-span-5 space-y-6">
                 <div className="flex justify-between items-center border-b border-sky-200 pb-2">
                   <h3 className="text-base font-bold text-slate-800">Delivery Integration</h3>
@@ -276,13 +284,12 @@ function TrackingContent() {
                       <>
                         <div className="flex justify-between">
                           <span className="font-medium text-slate-500">Delivery Status:</span>
-                          <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                            searchResult.delivery_status === 'Delivered'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : searchResult.delivery_status === 'In Transit'
+                          <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${searchResult.delivery_status === 'Delivered'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : searchResult.delivery_status === 'In Transit'
                               ? 'bg-amber-100 text-amber-800'
                               : 'bg-slate-100 text-slate-600'
-                          }`}>
+                            }`}>
                             {searchResult.delivery_status}
                           </span>
                         </div>
@@ -305,7 +312,7 @@ function TrackingContent() {
                       <select
                         value={deliveryType}
                         onChange={(e) => setDeliveryType(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl border border-sky-200 bg-white text-sm"
+                        className="w-full px-3 py-2 rounded-xl border border-sky-200 bg-white text-sm text-slate-800"
                       >
                         <option value="Self Pickup">Self Pickup at Store</option>
                         <option value="Home Delivery">Home Delivery</option>
@@ -321,7 +328,7 @@ function TrackingContent() {
                             value={deliveryAddress}
                             onChange={(e) => setDeliveryAddress(e.target.value)}
                             placeholder="Enter delivery destination..."
-                            className="w-full px-3 py-2 rounded-xl border border-sky-200 bg-white text-xs"
+                            className="w-full px-3 py-2 rounded-xl border border-sky-200 bg-white text-xs text-slate-800"
                             required
                           />
                         </div>
@@ -330,7 +337,7 @@ function TrackingContent() {
                           <select
                             value={deliveryStatus}
                             onChange={(e) => setDeliveryStatus(e.target.value)}
-                            className="w-full px-3 py-2 rounded-xl border border-sky-200 bg-white text-sm"
+                            className="w-full px-3 py-2 rounded-xl border border-sky-200 bg-white text-sm text-slate-800"
                           >
                             <option value="Not Started">Not Started</option>
                             <option value="In Transit">In Transit (Shipping)</option>
