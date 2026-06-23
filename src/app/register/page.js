@@ -4,34 +4,67 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
-import { register } from '@/db/mockDb';
+import { supabase } from '@/db/supabaseClient';
 import Link from 'next/link';
 
 export default function RegisterPage() {
   const router = useRouter();
-  
+
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleRegister = (e) => {
+  const handleRegister = async (e) => {
     e.preventDefault();
     setErrorMsg('');
+    setLoading(true);
 
-    if (!name || !phone || !username || !password) {
+    if (!name || !phone || !email || !password) {
       setErrorMsg('Please fill in all the registration fields.');
+      setLoading(false);
       return;
     }
 
-    const newUser = register(username, password, name, phone);
-    if (newUser) {
-      router.push('/history');
-      router.refresh();
-    } else {
-      setErrorMsg('Username is already taken. Please choose another username.');
+    try {
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: email,
+        password: password,
+      });
+
+      if (authError) {
+        setErrorMsg(authError.message);
+        return;
+      }
+
+      const userUuid = authData?.user?.id;
+
+      if (userUuid) {
+        const { error: dbError } = await supabase
+          .from('pelanggan')
+          .insert([
+            {
+              id_pelanggan: userUuid,
+              nama_pelanggan: name,
+              no_hp: phone,
+              username: email.split('@')[0],
+            },
+          ]);
+
+        if (dbError) {
+          setErrorMsg(dbError.message);
+          return;
+        }
+
+        router.push('/login');
+      }
+    } catch (err) {
+      setErrorMsg('An unexpected error occurred during registration.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -40,7 +73,6 @@ export default function RegisterPage() {
       <Navbar />
 
       <main className="flex-grow flex items-center justify-center py-10 px-4">
-        {/* White Card */}
         <div className="bg-white rounded-3xl p-10 max-w-lg w-full border-2 border-slate-200 shadow-xl space-y-6 my-8">
           <div className="text-center">
             <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-gradient-to-tr from-sky-400 to-sky-200 text-white font-bold mb-4 shadow-md shadow-sky-200 text-lg">
@@ -59,7 +91,7 @@ export default function RegisterPage() {
           )}
 
           <form onSubmit={handleRegister} className="space-y-4">
-            
+
             {/* Full Name */}
             <div>
               <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
@@ -76,7 +108,8 @@ export default function RegisterPage() {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="e.g. Budi Santoso"
-                  className="w-full pl-11 pr-4 py-3 rounded-2xl border-2 border-slate-300 focus:border-sky-500 focus:ring-2 focus:ring-sky-100 focus:outline-none text-sm font-bold text-slate-800 placeholder:text-slate-400 bg-white shadow-sm"
+                  className="w-full pl-11 pr-4 py-3 rounded-2xl border-2 border-slate-300 focus:border-sky-500 focus:ring-2 focus:ring-sky-100 focus:outline-none text-sm font-bold text-slate-800 placeholder:text-slate-400 bg-white shadow-sm disabled:bg-slate-50"
+                  disabled={loading}
                   required
                 />
               </div>
@@ -94,20 +127,21 @@ export default function RegisterPage() {
                   </svg>
                 </span>
                 <input
-                  type="number"
+                  type="text"
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="e.g. 62812345678"
-                  className="w-full pl-11 pr-4 py-3 rounded-2xl border-2 border-slate-300 focus:border-sky-500 focus:ring-2 focus:ring-sky-100 focus:outline-none text-sm font-bold text-slate-800 placeholder:text-slate-400 bg-white shadow-sm"
+                  onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))} // Proteksi murni angka tanpa spin arrow
+                  placeholder="e.g. 0812345678"
+                  className="w-full pl-11 pr-4 py-3 rounded-2xl border-2 border-slate-300 focus:border-sky-500 focus:ring-2 focus:ring-sky-100 focus:outline-none text-sm font-bold text-slate-800 placeholder:text-slate-400 bg-white shadow-sm disabled:bg-slate-50"
+                  disabled={loading}
                   required
                 />
               </div>
             </div>
 
-            {/* Username */}
+            {/* Email */}
             <div>
               <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-                Choose Username
+                Email Address
               </label>
               <div className="relative">
                 <span className="absolute inset-y-0 left-0 pl-4 flex items-center text-slate-400">
@@ -116,11 +150,12 @@ export default function RegisterPage() {
                   </svg>
                 </span>
                 <input
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Enter username"
-                  className="w-full pl-11 pr-4 py-3 rounded-2xl border-2 border-slate-300 focus:border-sky-500 focus:ring-2 focus:ring-sky-100 focus:outline-none text-sm font-bold text-slate-800 placeholder:text-slate-400 bg-white shadow-sm"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="name@example.com"
+                  className="w-full pl-11 pr-4 py-3 rounded-2xl border-2 border-slate-300 focus:border-sky-500 focus:ring-2 focus:ring-sky-100 focus:outline-none text-sm font-bold text-slate-800 placeholder:text-slate-400 bg-white shadow-sm disabled:bg-slate-50"
+                  disabled={loading}
                   required
                 />
               </div>
@@ -142,13 +177,15 @@ export default function RegisterPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full pl-11 pr-12 py-3 rounded-2xl border-2 border-slate-300 focus:border-sky-500 focus:ring-2 focus:ring-sky-100 focus:outline-none text-sm font-bold text-slate-800 placeholder:text-slate-400 bg-white shadow-sm"
+                  className="w-full pl-11 pr-12 py-3 rounded-2xl border-2 border-slate-300 focus:border-sky-500 focus:ring-2 focus:ring-sky-100 focus:outline-none text-sm font-bold text-slate-800 placeholder:text-slate-400 bg-white shadow-sm disabled:bg-slate-50"
+                  disabled={loading}
                   required
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute inset-y-0 right-0 pr-4 flex items-center text-slate-450 hover:text-slate-700"
+                  disabled={loading}
                 >
                   {showPassword ? (
                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -166,9 +203,10 @@ export default function RegisterPage() {
 
             <button
               type="submit"
-              className="w-full py-3.5 bg-sky-500 hover:bg-sky-600 text-white font-semibold rounded-2xl shadow-md shadow-sky-100 hover:shadow-lg transition-all text-sm tracking-wide"
+              className="w-full py-3.5 bg-sky-500 hover:bg-sky-600 text-white font-semibold rounded-2xl shadow-md shadow-sky-100 hover:shadow-lg transition-all text-sm tracking-wide disabled:bg-slate-300 disabled:shadow-none"
+              disabled={loading}
             >
-              Sign Up
+              {loading ? 'Creating Account...' : 'Sign Up'}
             </button>
           </form>
 

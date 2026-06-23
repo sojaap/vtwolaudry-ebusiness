@@ -3,21 +3,48 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
-import { getCurrentUser, logout } from '@/db/mockDb';
+import { supabase } from '@/db/supabaseClient';
 
 export default function Navbar() {
   const pathname = usePathname();
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState(null);
 
-  // Sync session on mount / path change
   useEffect(() => {
-    setCurrentUser(getCurrentUser());
-  }, [pathname]);
+    const getInitialSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        setCurrentUser({
+          name: session.user.user_metadataSnapshot?.name || session.user.email.split('@')[0],
+          role: 'customer'
+        });
+      } else {
+        setCurrentUser(null);
+      }
+    };
 
-  const handleLogout = () => {
-    logout();
+    getInitialSession();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+        setCurrentUser({
+          name: session.user.user_metadata?.name || session.user.email.split('@')[0],
+          role: 'customer'
+        });
+      } else {
+        setCurrentUser(null);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     setCurrentUser(null);
+
     if (pathname.startsWith('/admin')) {
       router.push('/admin-login');
     } else {
@@ -35,7 +62,7 @@ export default function Navbar() {
     <nav className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b border-slate-100 shadow-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-20">
-          
+
           {/* Logo & Navigation Menu Links */}
           <div className="flex items-center gap-10">
             {/* Logo V2 bubble */}
@@ -50,34 +77,34 @@ export default function Navbar() {
 
             {/* Navigation links matching Photo 3 layout */}
             <div className="hidden md:flex items-stretch h-full space-x-8">
-              <Link 
-                href="/" 
+              <Link
+                href="/"
                 className={`inline-flex items-center px-1 border-b-2 text-sm transition-all ${getActiveStyles('/')}`}
               >
                 Home
               </Link>
-              <Link 
-                href="/#how-it-works" 
+              <Link
+                href="/#how-it-works"
                 className={`inline-flex items-center px-1 border-b-2 text-sm transition-all ${getActiveStyles('/#how-it-works')}`}
               >
                 How it works
               </Link>
-              <Link 
-                href="/services" 
+              <Link
+                href="/services"
                 className={`inline-flex items-center px-1 border-b-2 text-sm transition-all ${getActiveStyles('/services')}`}
               >
                 Services
               </Link>
-              <Link 
-                href="/about" 
+              <Link
+                href="/about"
                 className={`inline-flex items-center px-1 border-b-2 text-sm transition-all ${getActiveStyles('/about')}`}
               >
                 About Us
               </Link>
-              
+
               {/* Calculator is open to everyone */}
-              <Link 
-                href="/order" 
+              <Link
+                href="/order"
                 className={`inline-flex items-center px-1 border-b-2 text-sm transition-all ${getActiveStyles('/order')}`}
               >
                 Order Calculator
@@ -85,16 +112,16 @@ export default function Navbar() {
 
               {/* Order History is only visible to logged-in customers */}
               {currentUser && currentUser.role === 'customer' && (
-                <Link 
-                  href="/history" 
+                <Link
+                  href="/history"
                   className={`inline-flex items-center px-1 border-b-2 text-sm transition-all ${getActiveStyles('/history')}`}
                 >
                   Order History
                 </Link>
               )}
 
-              <Link 
-                href="/track" 
+              <Link
+                href="/track"
                 className={`inline-flex items-center px-1 border-b-2 text-sm transition-all ${getActiveStyles('/track')}`}
               >
                 Track Order
@@ -104,7 +131,7 @@ export default function Navbar() {
 
           {/* Right Action buttons */}
           <div className="flex items-center gap-3">
-            
+
             {currentUser ? (
               // Logged In Profile Widget & Logout
               <div className="flex items-center gap-3.5">
@@ -126,13 +153,13 @@ export default function Navbar() {
               <div className="flex items-center gap-3">
                 <Link
                   href="/admin-login"
-                  className="text-xs font-semibold text-slate-400 hover:text-slate-655 transition-colors mr-2"
+                  className="text-xs font-semibold text-slate-400 hover:text-slate-600 transition-colors mr-2"
                 >
                   Staff Portal
                 </Link>
                 <Link
                   href="/login"
-                  className="px-4 py-2 border-2 border-slate-200 hover:bg-slate-50 text-slate-650 rounded-xl text-xs font-semibold transition-all shadow-sm"
+                  className="px-4 py-2 border-2 border-slate-200 hover:bg-slate-50 text-slate-700 hover:text-slate-900 rounded-xl text-xs font-semibold transition-all shadow-sm"
                 >
                   Log In
                 </Link>
@@ -144,7 +171,7 @@ export default function Navbar() {
                 </Link>
               </div>
             )}
-            
+
           </div>
         </div>
       </div>

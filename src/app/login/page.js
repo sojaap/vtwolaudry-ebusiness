@@ -4,32 +4,38 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
-import { login } from '@/db/mockDb';
+import { supabase } from '@/db/supabaseClient';
 import Link from 'next/link';
 
 export default function LoginPage() {
   const router = useRouter();
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
     setErrorMsg('');
+    setLoading(true);
 
-    const user = login(username, password, 'customer');
-    if (user) {
-      router.push('/history');
-      router.refresh();
-    } else {
-      setErrorMsg('Invalid customer username or password. Please try again.');
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email,
+        password: password,
+      });
+
+      if (error) {
+        setErrorMsg(error.message);
+      } else if (data?.user) {
+        router.push('/');
+      }
+    } catch (err) {
+      setErrorMsg('An unexpected error occurred during sign in.');
+    } finally {
+      setLoading(false);
     }
-  };
-
-  const handleQuickFill = (uname) => {
-    setUsername(uname);
-    setPassword('123');
   };
 
   return (
@@ -37,10 +43,8 @@ export default function LoginPage() {
       <Navbar />
 
       <main className="flex-grow flex items-center justify-center py-10 px-4">
-        {/* Proper White Card with soft sky blue borders/shadows */}
         <div className="bg-white rounded-3xl p-10 max-w-lg w-full border-2 border-slate-200 shadow-xl space-y-6 my-8">
           <div className="text-center">
-            {/* Logo V2 bubble */}
             <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-gradient-to-tr from-sky-400 to-sky-200 text-white font-bold mb-4 shadow-md shadow-sky-200 text-lg">
               V2
             </div>
@@ -57,11 +61,11 @@ export default function LoginPage() {
           )}
 
           <form onSubmit={handleLogin} className="space-y-5">
-            
-            {/* Username Field with Mail Icon */}
+
+            {/* Email Field (Menggantikan Username Lama) */}
             <div>
               <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-                Username
+                Email Address
               </label>
               <div className="relative">
                 <span className="absolute inset-y-0 left-0 pl-4 flex items-center text-slate-400">
@@ -70,17 +74,18 @@ export default function LoginPage() {
                   </svg>
                 </span>
                 <input
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Enter username"
-                  className="w-full pl-11 pr-4 py-3 rounded-2xl border-2 border-slate-300 focus:border-sky-500 focus:ring-2 focus:ring-sky-100 focus:outline-none text-sm font-bold text-slate-800 placeholder:text-slate-400 bg-white shadow-sm"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="name@example.com"
+                  className="w-full pl-11 pr-4 py-3 rounded-2xl border-2 border-slate-300 focus:border-sky-500 focus:ring-2 focus:ring-sky-100 focus:outline-none text-sm font-bold text-slate-800 placeholder:text-slate-400 bg-white shadow-sm disabled:bg-slate-50"
+                  disabled={loading}
                   required
                 />
               </div>
             </div>
 
-            {/* Password Field with Key Icon & Show/Hide Password Eye Button */}
+            {/* Password Field */}
             <div>
               <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
                 Password
@@ -96,13 +101,15 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full pl-11 pr-12 py-3 rounded-2xl border-2 border-slate-300 focus:border-sky-500 focus:ring-2 focus:ring-sky-100 focus:outline-none text-sm font-bold text-slate-800 placeholder:text-slate-400 bg-white shadow-sm"
+                  className="w-full pl-11 pr-12 py-3 rounded-2xl border-2 border-slate-300 focus:border-sky-500 focus:ring-2 focus:ring-sky-100 focus:outline-none text-sm font-bold text-slate-800 placeholder:text-slate-400 bg-white shadow-sm disabled:bg-slate-50"
+                  disabled={loading}
                   required
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute inset-y-0 right-0 pr-4 flex items-center text-slate-450 hover:text-slate-700"
+                  disabled={loading}
                 >
                   {showPassword ? (
                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -118,37 +125,15 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Blue Button */}
+            {/* Submit Button Guard */}
             <button
               type="submit"
-              className="w-full py-3.5 bg-sky-500 hover:bg-sky-600 text-white font-semibold rounded-2xl shadow-md shadow-sky-100 hover:shadow-lg transition-all text-sm tracking-wide"
+              className="w-full py-3.5 bg-sky-500 hover:bg-sky-600 text-white font-semibold rounded-2xl shadow-md shadow-sky-100 hover:shadow-lg transition-all text-sm tracking-wide disabled:bg-slate-300 disabled:shadow-none"
+              disabled={loading}
             >
-              Sign In
+              {loading ? 'Signing In...' : 'Sign In'}
             </button>
           </form>
-
-          {/* Quick Fills */}
-          <div className="border-t border-slate-100 pt-6 space-y-3">
-            <span className="block text-[10px] font-bold text-slate-400 uppercase text-center tracking-widest">
-              Demo Customer Account (Quick Fill)
-            </span>
-            <div className="flex gap-3 justify-center">
-              <button
-                type="button"
-                onClick={() => handleQuickFill('budi')}
-                className="px-4 py-2 border-2 border-slate-200 hover:bg-sky-50 hover:text-sky-600 rounded-xl text-xs font-bold text-slate-600 transition-all shadow-sm"
-              >
-                Budi (budi)
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickFill('siti')}
-                className="px-4 py-2 border-2 border-slate-200 hover:bg-sky-50 hover:text-sky-600 rounded-xl text-xs font-bold text-slate-600 transition-all shadow-sm"
-              >
-                Siti (siti)
-              </button>
-            </div>
-          </div>
 
           <div className="text-center text-xs text-slate-500 pt-2">
             Don't have an account?{' '}
