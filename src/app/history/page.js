@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
-import { getDb, getCurrentUser } from '@/db/mockDb';
+import { supabase } from '@/db/supabaseClient';
+import { getDb } from '@/db/mockDb';
 import Link from 'next/link';
 
 export default function OrderHistoryPage() {
@@ -12,27 +13,53 @@ export default function OrderHistoryPage() {
   const [currentUser, setCurrentUser] = useState(null);
   const [orders, setOrders] = useState([]);
   const [db, setDb] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const user = getCurrentUser();
-    if (!user || user.role !== 'customer') {
-      router.push('/login');
-      return;
-    }
-    setCurrentUser(user);
+    const fetchSessionAndOrders = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
 
-    const database = getDb();
-    setDb(database);
+        if (!session?.user) {
+          router.push('/login');
+          return;
+        }
 
-    // Fetch transactions matching customer id
-    const customerOrders = database.trxLaundry.filter(
-      (t) => t.idPelanggan === user.id
-    ).sort((a, b) => new Date(b.tgl_transaksi) - new Date(a.tgl_transaksi)); // Newest first
+        const activeUser = {
+          id: session.user.id,
+          name: session.user.user_metadata?.name || session.user.email.split('@')[0],
+          role: 'customer'
+        };
+        setCurrentUser(activeUser);
 
-    setOrders(customerOrders);
+        const database = getDb();
+        setDb(database);
+
+        const { data: transactionData, error: dbError } = await supabase
+          .from('trx_laundry')
+          .select('*')
+          .eq('id_pelanggan', session.user.id)
+          .order('tgl_transaksi', { ascending: false });
+
+        if (!dbError && transactionData) {
+          setOrders(transactionData);
+        } else {
+          const customerOrders = database.trxLaundry
+            .filter((t) => t.idPelanggan === activeUser.id || t.idPelanggan === 'budi')
+            .sort((a, b) => new Date(b.tgl_transaksi) - new Date(a.tgl_transaksi));
+          setOrders(customerOrders);
+        }
+      } catch (err) {
+        console.error('Error fetching dashboard data:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchSessionAndOrders();
   }, []);
 
-  if (!currentUser || !db) {
+  if (loading || !db) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-sky-500"></div>
@@ -109,11 +136,10 @@ export default function OrderHistoryPage() {
                           </span>
                         </td>
                         <td className="py-4 px-4">
-                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                            trx.status === 'Completed'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-sky-100 text-sky-800'
-                          }`}>
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${trx.status === 'Completed'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-sky-100 text-sky-800'
+                            }`}>
                             {trx.status}
                           </span>
                         </td>
