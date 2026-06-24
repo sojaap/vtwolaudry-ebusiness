@@ -16,8 +16,8 @@ export default function AdminDashboard() {
   const [dpTotal, setDpTotal] = useState(0);
   const [activeOrders, setActiveOrders] = useState([]);
 
-  // Cashier productivity
-  const [cashierStats, setCashierStats] = useState([]);
+  // State Grafis Dinamis
+  const [graphData, setGraphData] = useState([]);
 
   useEffect(() => {
     async function syncDashboardSession() {
@@ -48,18 +48,37 @@ export default function AdminDashboard() {
 
   const loadCloudData = async () => {
     try {
-      const { data: cloudTrx } = await supabase.from('transaksi').select('*');
+      const { data: cloudTrx, error: trxError } = await supabase.from('trx_laundry').select('*');
       const { data: cloudPelanggan } = await supabase.from('pelanggan').select('*');
       const { data: cloudParfum } = await supabase.from('parfum').select('*');
+
+      if (trxError) {
+        console.error("❌ PESAN ERROR DATABASE:", trxError.message);
+      }
+
+      const normalizedTrx = (cloudTrx || []).map(t => {
+        const grandTotalValue = Number(t.grand_total || 0);
+        const dpValue = Number(t.dp || 0);
+        const sisaValue = Number(t.sisa || 0);
+
+        return {
+          id: t.no_struk,
+          no_struk: t.no_struk || 'N/A',
+          grand_total: grandTotalValue,
+          dp: dpValue,
+          sisa: sisaValue,
+          status: t.status || 'Pickup',
+          delivery_type: t.delivery_type || 'Self Pickup',
+          delivery_status: t.delivery_status || 'Not Started',
+          id_pelanggan: t.id_pelanggan,
+          created_at: t.tgl_transaksi
+        };
+      });
 
       const structuredDb = {
         pelanggan: cloudPelanggan || [],
         parfum: cloudParfum || [],
-        trxLaundry: cloudTrx || [],
-        kasir: [
-          { idKasir: 'KSR001', nama_kasir: 'Fitri' },
-          { idKasir: 'KSR002', nama_kasir: 'Agus' }
-        ]
+        trxLaundry: normalizedTrx
       };
 
       setDb(structuredDb);
@@ -69,9 +88,9 @@ export default function AdminDashboard() {
       let downPayment = 0;
 
       structuredDb.trxLaundry.forEach((t) => {
-        rev += Number(t.grand_total || 0);
-        outstanding += Number(t.sisa || 0);
-        downPayment += Number(t.dp || 0);
+        rev += t.grand_total;
+        outstanding += t.sisa;
+        downPayment += t.dp;
       });
 
       setRevenue(rev);
@@ -79,61 +98,66 @@ export default function AdminDashboard() {
       setDpTotal(downPayment);
       setActiveOrders(structuredDb.trxLaundry);
 
-      const stats = structuredDb.kasir.map((k) => {
-        const cashierTrxs = structuredDb.trxLaundry.filter((t) => t.id_kasir === k.idKasir || t.idKasir === k.idKasir);
-        const totalAmount = cashierTrxs.reduce((acc, curr) => acc + Number(curr.grand_total || 0), 0);
-        const activeCount = cashierTrxs.filter((t) => t.status !== 'Completed').length;
+      const labelHari = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const penampungHari = { Sun: 0, Mon: 0, Tue: 0, Wed: 0, Thu: 0, Fri: 0, Sat: 0 };
 
-        return {
-          ...k,
-          trxCount: cashierTrxs.length,
-          totalAmount,
-          activeCount,
-          loadPercentage: Math.min(100, Math.round((activeCount / 5) * 100)),
-        };
+      normalizedTrx.forEach((trx) => {
+        if (trx.created_at) {
+          const hariIndex = new Date(trx.created_at).getDay();
+          const namaHari = labelHari[hariIndex];
+          if (penampungHari[namaHari] !== undefined) {
+            penampungHari[namaHari] += trx.grand_total;
+          }
+        }
       });
-      setCashierStats(stats);
+
+      setGraphData(labelHari.map(h => ({ day: h, amount: penampungHari[h] })));
 
     } catch (error) {
       console.error("Gagal memuat visualisasi data cloud:", error);
     }
   };
 
-  const handleStatusChange = async (no_struk, newStatus) => {
+  const handleStatusChange = async (primaryKey, newStatus) => {
     try {
-      const currentTrx = activeOrders.find((t) => t.no_struk === no_struk);
-      let updatePayload = { status: newStatus };
+      const currentTrx = activeOrders.find((t) => t.id === primaryKey || t.no_struk === primaryKey);
+      if (!currentTrx) return;
 
-      if (currentTrx && (currentTrx.delivery_type === 'Home Delivery' || currentTrx.delivery_style === 'Home Delivery') && newStatus === 'Completed') {
+      let updatePayload = { status: newStatus };
+      if (currentTrx.delivery_type === 'Home Delivery' && newStatus === 'Completed') {
         updatePayload.delivery_status = 'Delivered';
       }
 
-      await supabase
-        .from('transaksi')
+      const { error } = await supabase
+        .from('trx_laundry')
         .update(updatePayload)
-        .eq('no_struk', no_struk);
+        .eq('no_struk', primaryKey);
+
+      if (error) throw error;
 
       loadCloudData();
     } catch (error) {
-      console.error("Gagal memperbarui status order:", error);
+      console.error("Gagal memperbarui status laundry ke Supabase:", error);
     }
   };
 
-  const handleDeliveryStatusChange = async (no_struk, newDelStatus) => {
+  const handleDeliveryStatusChange = async (primaryKey, newDelStatus) => {
     try {
       let updatePayload = { delivery_status: newDelStatus };
       if (newDelStatus === 'Delivered') {
         updatePayload.status = 'Completed';
       }
 
-      await supabase
-        .from('transaksi')
+      const { error } = await supabase
+        .from('trx_laundry')
         .update(updatePayload)
-        .eq('no_struk', no_struk);
+        .eq('no_struk', primaryKey);
+
+      if (error) throw error;
 
       loadCloudData();
     } catch (error) {
-      console.error("Gagal memperbarui status logistik:", error);
+      console.error("Gagal memperbarui status pengiriman ke Supabase:", error);
     }
   };
 
@@ -144,13 +168,6 @@ export default function AdminDashboard() {
       </div>
     );
   }
-
-  const recentDays = [
-    { day: 'Mon', amount: 150000 },
-    { day: 'Tue', amount: 280000 },
-    { day: 'Wed', amount: 200000 },
-    { day: 'Thu', amount: revenue },
-  ];
 
   return (
     <div className="space-y-8">
@@ -212,13 +229,13 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* Visual Charts & Productivity */}
+      {/* Visual Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        <div className="bg-slate-800 rounded-3xl p-6 border border-slate-700/80 shadow-sm lg:col-span-7 space-y-6">
+        <div className="bg-slate-800 rounded-3xl p-6 border border-slate-700/80 shadow-sm lg:col-span-12 space-y-6">
           <h2 className="text-base font-bold text-white border-b border-slate-700 pb-2">Revenue Growth</h2>
           <div className="h-48 w-full flex items-end justify-between px-4 pt-4 border-b border-l border-slate-700">
-            {recentDays.map((d, index) => {
-              const max = Math.max(...recentDays.map(item => item.amount));
+            {graphData.map((d, index) => {
+              const max = Math.max(...graphData.map(item => item.amount));
               const heightPercent = max > 0 ? (d.amount / max) * 100 : 0;
               return (
                 <div key={index} className="flex flex-col items-center flex-1 space-y-2 group">
@@ -233,26 +250,6 @@ export default function AdminDashboard() {
                 </div>
               );
             })}
-          </div>
-        </div>
-
-        <div className="bg-slate-800 rounded-3xl p-6 border border-slate-700/80 shadow-sm lg:col-span-5 space-y-4">
-          <h2 className="text-base font-bold text-white border-b border-slate-700 pb-2">Staff Workload</h2>
-          <div className="space-y-4">
-            {cashierStats.map((c) => (
-              <div key={c.idKasir} className="space-y-1.5 p-3.5 rounded-2xl border border-slate-700 bg-slate-900/50">
-                <div className="flex justify-between items-center text-xs">
-                  <div>
-                    <span className="font-extrabold text-white">{c.nama_kasir}</span>
-                    <span className="text-[10px] text-slate-500 block">{c.trxCount} orders</span>
-                  </div>
-                  <span className="font-bold text-sky-400">{c.activeCount} active</span>
-                </div>
-                <div className="w-full h-2.5 bg-slate-700 rounded-full overflow-hidden">
-                  <div className="h-full rounded-full bg-emerald-400" style={{ width: `${c.loadPercentage}%` }}></div>
-                </div>
-              </div>
-            ))}
           </div>
         </div>
       </div>
@@ -274,58 +271,69 @@ export default function AdminDashboard() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-700/80 text-slate-300">
-              {activeOrders.map((trx) => {
-                const trxCustomerId = trx.idPelanggan || trx.id_pelanggan;
-                const customer = db.pelanggan.find((p) => (p.id_pelanggan || p.idPelanggan) === trxCustomerId);
-                const isHomeDel = trx.delivery_type === 'Home Delivery' || trx.delivery_style === 'Home Delivery';
+              {activeOrders.length === 0 ? (
+                <tr>
+                  <td colSpan="7" className="py-8 text-center text-slate-500 font-medium">
+                    No transactions found in cloud database.
+                  </td>
+                </tr>
+              ) : (
+                activeOrders.map((trx) => {
+                  const trxCustomerId = trx.id_pelanggan;
+                  const customer = db.pelanggan.find((p) => (p.id_pelanggan === trxCustomerId || p.id === trxCustomerId));
+                  const isHomeDel = trx.delivery_type === 'Home Delivery' || trx.delivery_status !== 'Not Started';
+                  const primaryKey = trx.no_struk;
 
-                return (
-                  <tr key={trx.no_struk || trx.id} className="hover:bg-slate-700/30 transition-colors">
-                    <td className="py-3 px-4 font-mono font-bold text-sky-400">{trx.no_struk || 'N/A'}</td>
-                    <td className="py-3 px-4 text-xs">
-                      <span className="font-bold text-white block">{customer ? customer.nama_pelanggan : 'Umum'}</span>
-                    </td>
-                    <td className="py-3 px-4 font-bold text-xs">IDR {Number(trx.grand_total || 0).toLocaleString()}</td>
-                    <td className="py-3 px-4 text-xs">
-                      <span className={Number(trx.sisa || 0) > 0 ? 'text-rose-400 font-bold' : 'text-emerald-400 font-bold'}>
-                        IDR {Number(trx.sisa || 0).toLocaleString()}
-                      </span>
-                    </td>
+                  return (
+                    <tr key={primaryKey} className="hover:bg-slate-700/30 transition-colors">
+                      <td className="py-3 px-4 font-mono font-bold text-sky-400">{trx.no_struk}</td>
+                      <td className="py-3 px-4 text-xs">
+                        <span className="font-bold text-white block">
+                          {customer ? (customer.nama_pelanggan || customer.nama || customer.nama_customer) : 'Umum'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 font-bold text-xs">IDR {trx.grand_total.toLocaleString()}</td>
+                      <td className="py-3 px-4 text-xs">
+                        <span className={trx.sisa > 0 ? 'text-rose-400 font-bold' : 'text-emerald-400 font-bold'}>
+                          IDR {trx.sisa.toLocaleString()}
+                        </span>
+                      </td>
 
-                    <td className="py-3 px-4">
-                      <select
-                        value={trx.status || 'Pickup'}
-                        onChange={(e) => handleStatusChange(trx.no_struk, e.target.value)}
-                        className="px-2.5 py-1.5 text-xs font-bold rounded-lg border-2 border-slate-600 bg-slate-900 text-white"
-                      >
-                        <option value="Pickup">Pickup</option>
-                        <option value="Wash & Dry">Wash & Dry</option>
-                        <option value="Fold">Fold</option>
-                        <option value="Delivery">Delivery</option>
-                        <option value="Completed">Completed</option>
-                      </select>
-                    </td>
-
-                    <td className="py-3 px-4 text-xs">{trx.delivery_type || 'Self Pickup'}</td>
-
-                    <td className="py-3 px-4">
-                      {isHomeDel ? (
+                      <td className="py-3 px-4">
                         <select
-                          value={trx.delivery_status || 'Not Started'}
-                          onChange={(e) => handleDeliveryStatusChange(trx.no_struk, e.target.value)}
-                          className="px-2.5 py-1.5 text-xs font-bold rounded-lg border-2 bg-slate-900 border-slate-600 text-slate-300"
+                          value={trx.status}
+                          onChange={(e) => handleStatusChange(primaryKey, e.target.value)}
+                          className="px-2.5 py-1.5 text-xs font-bold rounded-lg border-2 border-slate-600 bg-slate-900 text-white focus:outline-none focus:border-sky-400"
                         >
-                          <option value="Not Started">Not Started</option>
-                          <option value="In Transit">In Transit</option>
-                          <option value="Delivered">Delivered</option>
+                          <option value="Pickup">Pickup</option>
+                          <option value="Wash & Dry">Wash & Dry</option>
+                          <option value="Fold">Fold</option>
+                          <option value="Delivery">Delivery</option>
+                          <option value="Completed">Completed</option>
                         </select>
-                      ) : (
-                        <span className="text-xs text-slate-500">-</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
+                      </td>
+
+                      <td className="py-3 px-4 text-xs">{trx.delivery_type}</td>
+
+                      <td className="py-3 px-4">
+                        {isHomeDel ? (
+                          <select
+                            value={trx.delivery_status}
+                            onChange={(e) => handleDeliveryStatusChange(primaryKey, e.target.value)}
+                            className="px-2.5 py-1.5 text-xs font-bold rounded-lg border-2 bg-slate-900 border-slate-600 text-slate-300 focus:outline-none focus:border-sky-400"
+                          >
+                            <option value="Not Started">Not Started</option>
+                            <option value="In Transit">In Transit</option>
+                            <option value="Delivered">Delivered</option>
+                          </select>
+                        ) : (
+                          <span className="text-xs text-slate-500">-</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
