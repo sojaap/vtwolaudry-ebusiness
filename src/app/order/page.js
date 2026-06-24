@@ -457,7 +457,7 @@ function OrderCalculatorContent() {
                 <span className="text-emerald-700 font-extrabold">- IDR {Number(dp || 0).toLocaleString()}</span>
               </div>
               <div className="flex justify-between items-center border-t border-sky-200 pt-3 text-lg font-black text-slate-800">
-                <span>Remaining Sisa</span>
+                <span>Remaining Payment :</span>
                 <span className="text-rose-600">IDR {sisa.toLocaleString()}</span>
               </div>
             </div>

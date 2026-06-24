@@ -87,6 +87,13 @@ export default function Navbar() {
               >
                 Home
               </Link>
+              
+               <Link
+                href="/about"
+                className={`inline-flex items-center px-1 border-b-2 text-sm transition-all ${getActiveStyles('/about')}`}
+              >
+                About Us
+              </Link>
               <Link
                 href="/#how-it-works"
                 className={`inline-flex items-center px-1 border-b-2 text-sm transition-all ${getActiveStyles('/#how-it-works')}`}
@@ -98,12 +105,6 @@ export default function Navbar() {
                 className={`inline-flex items-center px-1 border-b-2 text-sm transition-all ${getActiveStyles('/services')}`}
               >
                 Services
-              </Link>
-              <Link
-                href="/about"
-                className={`inline-flex items-center px-1 border-b-2 text-sm transition-all ${getActiveStyles('/about')}`}
-              >
-                About Us
               </Link>
 
               {/* Calculator is open to everyone */}
