@@ -30,7 +30,7 @@ export default function AdminLoginPage() {
         return;
       }
 
-      router.push('/admin/transactions');
+      router.push('/admin/');
       router.refresh();
     } catch (err) {
       console.error('Staff auth gateway error:', err);

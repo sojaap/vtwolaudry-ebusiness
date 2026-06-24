@@ -1,22 +1,22 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { getDb, getCurrentUser } from '@/db/mockDb';
 import { useRouter } from 'next/navigation';
+import { supabase } from '@/db/supabaseClient';
 
 export default function FinancialReports() {
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState(null);
   const [db, setDb] = useState(null);
-  
+
   // Filters
   const [dateFilter, setDateFilter] = useState('all');
   const [branchFilter, setBranchFilter] = useState('all');
   const [paymentFilter, setPaymentFilter] = useState('all');
-  
+
   // Active filtered transactions
   const [filteredTrx, setFilteredTrx] = useState([]);
-  
+
   // Summary Aggregates
   const [summary, setSummary] = useState({
     count: 0,
@@ -25,77 +25,112 @@ export default function FinancialReports() {
     outstanding: 0,
   });
 
-  // Verify Owner Authentication on Mount
+  // 1. Sinkronisasi Sesi Terpusat dengan Peran Tunggal Admin
   useEffect(() => {
-    const user = getCurrentUser();
-    if (!user || user.role !== 'owner') {
-      router.push('/admin-login');
-      return;
+    async function syncReportSession() {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+
+        if (!session?.user || session.user.email !== 'admin@vtwolaundry.com') {
+          router.push('/admin-login');
+          return;
+        }
+
+        setCurrentUser({
+          id: session.user.id,
+          name: 'ADMIN VTWO',
+          role: 'admin'
+        });
+
+        // Eksekusi pengambilan data cloud setelah sesi terbukti valid
+        loadCloudReports();
+
+      } catch (err) {
+        console.error("Gagal sinkronisasi sesi halaman laporan:", err);
+        router.push('/admin-login');
+      }
     }
-    setCurrentUser(user);
-    loadReports();
+
+    syncReportSession();
   }, [dateFilter, branchFilter, paymentFilter]);
 
-  const loadReports = () => {
-    const data = getDb();
-    setDb(data);
+  // 2. Tarik dan Normalisasi Data Langsung dari Cloud Supabase
+  const loadCloudReports = async () => {
+    try {
+      // Ambil data master secara paralel dari database cloud
+      const { data: cloudTrx } = await supabase.from('transaksi').select('*');
+      const { data: cloudToko } = await supabase.from('toko').select('*');
+      const { data: cloudPelanggan } = await supabase.from('pelanggan').select('*');
 
-    let transactions = [...data.trxLaundry];
+      // Siapkan fallback object terstruktur agar render UI tidak crash jika tabel kosong
+      const structuredDb = {
+        toko: cloudToko || [{ idToko: 'TKO001', nama_toko: 'VTwo Laundry Pusat' }],
+        pelanggan: cloudPelanggan || [],
+        trxLaundry: cloudTrx || []
+      };
 
-    // 1. Date Range Filter
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+      setDb(structuredDb);
 
-    if (dateFilter === 'today') {
-      transactions = transactions.filter((t) => {
-        const tDate = new Date(t.tgl_transaksi);
-        return tDate >= today;
+      let transactions = [...structuredDb.trxLaundry];
+
+      // Filter Waktu (Date Range)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      if (dateFilter === 'today') {
+        transactions = transactions.filter((t) => {
+          const tDate = new Date(t.tgl_transaksi || t.created_at);
+          return tDate >= today;
+        });
+      } else if (dateFilter === 'week') {
+        const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        transactions = transactions.filter((t) => {
+          const tDate = new Date(t.tgl_transaksi || t.created_at);
+          return tDate >= oneWeekAgo;
+        });
+      } else if (dateFilter === 'month') {
+        const oneMonthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        transactions = transactions.filter((t) => {
+          const tDate = new Date(t.tgl_transaksi || t.created_at);
+          return tDate >= oneMonthAgo;
+        });
+      }
+
+      // Filter Toko/Cabang
+      if (branchFilter !== 'all') {
+        transactions = transactions.filter((t) => t.idToko === branchFilter || t.id_toko === branchFilter);
+      }
+
+      // Filter Status Pembayaran
+      if (paymentFilter === 'paid') {
+        transactions = transactions.filter((t) => Number(t.sisa) === 0);
+      } else if (paymentFilter === 'outstanding') {
+        transactions = transactions.filter((t) => Number(t.sisa) > 0);
+      }
+
+      setFilteredTrx(transactions);
+
+      // Kalkulasi Agregasi Finansial Ledger
+      let totalRevenue = 0;
+      let totalDp = 0;
+      let totalOutstanding = 0;
+
+      transactions.forEach((t) => {
+        totalRevenue += Number(t.grand_total || 0);
+        totalDp += Number(t.dp || 0);
+        totalOutstanding += Number(t.sisa || 0);
       });
-    } else if (dateFilter === 'week') {
-      const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-      transactions = transactions.filter((t) => {
-        const tDate = new Date(t.tgl_transaksi);
-        return tDate >= oneWeekAgo;
+
+      setSummary({
+        count: transactions.length,
+        revenue: totalRevenue,
+        dpCollected: totalDp,
+        outstanding: totalOutstanding,
       });
-    } else if (dateFilter === 'month') {
-      const oneMonthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      transactions = transactions.filter((t) => {
-        const tDate = new Date(t.tgl_transaksi);
-        return tDate >= oneMonthAgo;
-      });
+
+    } catch (error) {
+      console.error("Gagal kalkulasi data laporan keuangan:", error);
     }
-
-    // 2. Branch Filter
-    if (branchFilter !== 'all') {
-      transactions = transactions.filter((t) => t.idToko === branchFilter);
-    }
-
-    // 3. Payment Status Filter
-    if (paymentFilter === 'paid') {
-      transactions = transactions.filter((t) => t.sisa === 0);
-    } else if (paymentFilter === 'outstanding') {
-      transactions = transactions.filter((t) => t.sisa > 0);
-    }
-
-    setFilteredTrx(transactions);
-
-    // Calculate aggregations
-    let totalRevenue = 0;
-    let totalDp = 0;
-    let totalOutstanding = 0;
-
-    transactions.forEach((t) => {
-      totalRevenue += Number(t.grand_total);
-      totalDp += Number(t.dp);
-      totalOutstanding += Number(t.sisa);
-    });
-
-    setSummary({
-      count: transactions.length,
-      revenue: totalRevenue,
-      dpCollected: totalDp,
-      outstanding: totalOutstanding,
-    });
   };
 
   const handlePrint = () => {
@@ -112,7 +147,7 @@ export default function FinancialReports() {
 
   return (
     <div className="space-y-8 print:bg-white print:text-black">
-      
+
       {/* Reports Header */}
       <div className="flex justify-between items-center border-b border-slate-700 pb-5">
         <div>
@@ -124,10 +159,10 @@ export default function FinancialReports() {
             Filter transaction logs, calculate balances, and export financial summaries.
           </p>
         </div>
-        
+
         <button
           onClick={handlePrint}
-          className="px-5 py-2.5 bg-sky-550 bg-sky-500 hover:bg-sky-600 text-white font-bold rounded-2xl text-sm shadow-md shadow-sky-500/10 transition-all flex items-center gap-2 print:hidden"
+          className="px-5 py-2.5 bg-sky-500 hover:bg-sky-600 text-white font-bold rounded-2xl text-sm shadow-md shadow-sky-500/10 transition-all flex items-center gap-2 print:hidden"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
@@ -139,7 +174,7 @@ export default function FinancialReports() {
       {/* Filters Card */}
       <div className="bg-slate-800 rounded-3xl p-6 border border-slate-700/80 shadow-md grid grid-cols-1 sm:grid-cols-3 gap-6 print:hidden">
         <div>
-          <label className="block text-xs font-bold text-slate-450 uppercase mb-2">Time Period</label>
+          <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Time Period</label>
           <select
             value={dateFilter}
             onChange={(e) => setDateFilter(e.target.value)}
@@ -153,23 +188,26 @@ export default function FinancialReports() {
         </div>
 
         <div>
-          <label className="block text-xs font-bold text-slate-450 uppercase mb-2">Store Branch</label>
+          <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Store Branch</label>
           <select
             value={branchFilter}
             onChange={(e) => setBranchFilter(e.target.value)}
             className="w-full px-4 py-2.5 rounded-xl border-2 border-slate-600 bg-slate-900 text-slate-100 font-extrabold focus:border-sky-400 focus:outline-none"
           >
             <option value="all">All Branches</option>
-            {db.toko.map((t) => (
-              <option key={t.idToko} value={t.idToko}>
-                {t.nama_toko}
-              </option>
-            ))}
+            {db.toko.map((t) => {
+              const branchId = t.id_toko || t.idToko;
+              return (
+                <option key={branchId} value={branchId}>
+                  {t.nama_toko}
+                </option>
+              );
+            })}
           </select>
         </div>
 
         <div>
-          <label className="block text-xs font-bold text-slate-450 uppercase mb-2">Payment Status</label>
+          <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Payment Status</label>
           <select
             value={paymentFilter}
             onChange={(e) => setPaymentFilter(e.target.value)}
@@ -225,7 +263,7 @@ export default function FinancialReports() {
                 <th className="py-3 px-2">Status</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-750 font-medium text-slate-300 print:text-slate-800 print:divide-slate-200">
+            <tbody className="divide-y divide-slate-700 font-medium text-slate-300 print:text-slate-800 print:divide-slate-200">
               {filteredTrx.length === 0 ? (
                 <tr>
                   <td colSpan="8" className="py-8 text-center text-slate-400 font-semibold text-sm">
@@ -234,29 +272,32 @@ export default function FinancialReports() {
                 </tr>
               ) : (
                 filteredTrx.map((trx) => {
-                  const shop = db.toko.find((t) => t.idToko === trx.idToko);
-                  const customer = db.pelanggan.find((p) => p.idPelanggan === trx.idPelanggan);
-                  
+                  const trxBranchId = trx.idToko || trx.id_toko;
+                  const trxCustomerId = trx.idPelanggan || trx.id_pelanggan;
+
+                  const shop = db.toko.find((t) => (t.id_toko || t.idToko) === trxBranchId);
+                  const customer = db.pelanggan.find((p) => (p.id_pelanggan || p.idPelanggan) === trxCustomerId);
+                  const dateString = trx.tgl_transaksi || trx.created_at;
+
                   return (
-                    <tr key={trx.no_struk} className="hover:bg-slate-700/30 transition-colors">
-                      <td className="py-3 px-2">{new Date(trx.tgl_transaksi).toLocaleDateString()}</td>
-                      <td className="py-3 px-2 font-mono font-bold text-sky-400">{trx.no_struk}</td>
-                      <td className="py-3 px-2 text-slate-450 print:text-slate-500">{shop ? shop.nama_toko : ''}</td>
-                      <td className="py-3 px-2 font-bold text-white print:text-black">{customer ? customer.nama_pelanggan : ''}</td>
-                      <td className="py-3 px-2 font-bold">IDR {trx.grand_total.toLocaleString()}</td>
-                      <td className="py-3 px-2 text-emerald-400 print:text-emerald-600">IDR {trx.dp.toLocaleString()}</td>
+                    <tr key={trx.no_struk || trx.id} className="hover:bg-slate-700/30 transition-colors">
+                      <td className="py-3 px-2">{dateString ? new Date(dateString).toLocaleDateString() : '-'}</td>
+                      <td className="py-3 px-2 font-mono font-bold text-sky-400">{trx.no_struk || 'N/A'}</td>
+                      <td className="py-3 px-2 text-slate-400 print:text-slate-500">{shop ? shop.nama_toko : 'Pusat'}</td>
+                      <td className="py-3 px-2 font-bold text-white print:text-black">{customer ? customer.nama_pelanggan : 'Umum'}</td>
+                      <td className="py-3 px-2 font-bold">IDR {Number(trx.grand_total || 0).toLocaleString()}</td>
+                      <td className="py-3 px-2 text-emerald-400 print:text-emerald-600">IDR {Number(trx.dp || 0).toLocaleString()}</td>
                       <td className="py-3 px-2">
-                        <span className={trx.sisa > 0 ? 'text-rose-400 font-bold print:text-rose-600' : 'text-slate-500'}>
-                          IDR {trx.sisa.toLocaleString()}
+                        <span className={Number(trx.sisa || 0) > 0 ? 'text-rose-400 font-bold print:text-rose-600' : 'text-slate-500'}>
+                          IDR {Number(trx.sisa || 0).toLocaleString()}
                         </span>
                       </td>
                       <td className="py-3 px-2">
-                        <span className={`px-2 py-0.5 rounded-full font-bold text-[9px] ${
-                          trx.status === 'Completed'
-                            ? 'bg-emerald-950/50 text-emerald-300 border border-emerald-800 print:bg-emerald-100 print:text-emerald-800'
-                            : 'bg-sky-950/50 text-sky-300 border border-sky-800 print:bg-sky-100 print:text-sky-800'
-                        }`}>
-                          {trx.status}
+                        <span className={`px-2 py-0.5 rounded-full font-bold text-[9px] ${trx.status === 'Completed'
+                          ? 'bg-emerald-950/50 text-emerald-300 border border-emerald-800 print:bg-emerald-100 print:text-emerald-800'
+                          : 'bg-sky-950/50 text-sky-300 border border-sky-800 print:bg-sky-100 print:text-sky-800'
+                          }`}>
+                          {trx.status || 'Pickup'}
                         </span>
                       </td>
                     </tr>
