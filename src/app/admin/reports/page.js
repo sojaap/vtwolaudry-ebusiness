@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/db/supabaseClient';
 
@@ -25,7 +25,101 @@ export default function FinancialReports() {
     outstanding: 0,
   });
 
-  // 1. Sinkronisasi Sesi Terpusat dengan Peran Tunggal Admin
+  const loadCloudReports = useCallback(async () => {
+    try {
+      const { data: cloudTrx, error: trxError } = await supabase.from('trx_laundry').select('*');
+      const { data: cloudToko } = await supabase.from('toko').select('*');
+      const { data: cloudPelanggan } = await supabase.from('pelanggan').select('*');
+
+      if (trxError) {
+        console.error("❌ GAGAL MEMUAT DATA REPORT DARI CLOUD:", trxError.message);
+        return;
+      }
+
+      const normalizedTrx = (cloudTrx || []).map(t => ({
+        id: t.no_struk,
+        no_struk: t.no_struk || 'N/A',
+        grand_total: Number(t.grand_total || 0),
+        dp: Number(t.dp || 0),
+        sisa: Number(t.sisa || 0),
+        status: t.status || 'Pickup',
+        delivery_type: t.delivery_type || 'Self Pickup',
+        delivery_status: t.delivery_status || 'Not Started',
+        id_pelanggan: t.id_pelanggan,
+        id_toko: t.id_toko,
+        tgl_transaksi: t.tgl_transaksi
+      }));
+
+      const structuredDb = {
+        toko: cloudToko || [{ id_toko: 'TKO001', nama_toko: 'VTwo Laundry Pusat' }],
+        pelanggan: cloudPelanggan || [],
+        trxLaundry: normalizedTrx
+      };
+
+      setDb(structuredDb);
+
+      let transactions = [...structuredDb.trxLaundry];
+
+      // Filter Waktu (Date Range)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      if (dateFilter === 'today') {
+        transactions = transactions.filter((t) => {
+          const tDate = new Date(t.tgl_transaksi);
+          return tDate >= today;
+        });
+      } else if (dateFilter === 'week') {
+        const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        transactions = transactions.filter((t) => {
+          const tDate = new Date(t.tgl_transaksi);
+          return tDate >= oneWeekAgo;
+        });
+      } else if (dateFilter === 'month') {
+        const oneMonthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        transactions = transactions.filter((t) => {
+          const tDate = new Date(t.tgl_transaksi);
+          return tDate >= oneMonthAgo;
+        });
+      }
+
+      // Filter Toko/Cabang
+      if (branchFilter !== 'all') {
+        transactions = transactions.filter((t) => t.id_toko === branchFilter);
+      }
+
+      // Filter Status Pembayaran
+      if (paymentFilter === 'paid') {
+        transactions = transactions.filter((t) => t.sisa === 0);
+      } else if (paymentFilter === 'outstanding') {
+        transactions = transactions.filter((t) => t.sisa > 0);
+      }
+
+      setFilteredTrx(transactions);
+
+      // Kalkulasi Agregasi Finansial Ledger Dinamis
+      let totalRevenue = 0;
+      let totalDp = 0;
+      let totalOutstanding = 0;
+
+      transactions.forEach((t) => {
+        totalRevenue += t.grand_total;
+        totalDp += t.dp;
+        totalOutstanding += t.sisa;
+      });
+
+      setSummary({
+        count: transactions.length,
+        revenue: totalRevenue,
+        dpCollected: totalDp,
+        outstanding: totalOutstanding,
+      });
+
+    } catch (error) {
+      console.error("Gagal kalkulasi data laporan keuangan:", error);
+    }
+  }, [dateFilter, branchFilter, paymentFilter]);
+
   useEffect(() => {
     async function syncReportSession() {
       try {
@@ -42,7 +136,6 @@ export default function FinancialReports() {
           role: 'admin'
         });
 
-        // Eksekusi pengambilan data cloud setelah sesi terbukti valid
         loadCloudReports();
 
       } catch (err) {
@@ -52,86 +145,7 @@ export default function FinancialReports() {
     }
 
     syncReportSession();
-  }, [dateFilter, branchFilter, paymentFilter]);
-
-  // 2. Tarik dan Normalisasi Data Langsung dari Cloud Supabase
-  const loadCloudReports = async () => {
-    try {
-      // Ambil data master secara paralel dari database cloud
-      const { data: cloudTrx } = await supabase.from('transaksi').select('*');
-      const { data: cloudToko } = await supabase.from('toko').select('*');
-      const { data: cloudPelanggan } = await supabase.from('pelanggan').select('*');
-
-      // Siapkan fallback object terstruktur agar render UI tidak crash jika tabel kosong
-      const structuredDb = {
-        toko: cloudToko || [{ idToko: 'TKO001', nama_toko: 'VTwo Laundry Pusat' }],
-        pelanggan: cloudPelanggan || [],
-        trxLaundry: cloudTrx || []
-      };
-
-      setDb(structuredDb);
-
-      let transactions = [...structuredDb.trxLaundry];
-
-      // Filter Waktu (Date Range)
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
-      if (dateFilter === 'today') {
-        transactions = transactions.filter((t) => {
-          const tDate = new Date(t.tgl_transaksi || t.created_at);
-          return tDate >= today;
-        });
-      } else if (dateFilter === 'week') {
-        const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-        transactions = transactions.filter((t) => {
-          const tDate = new Date(t.tgl_transaksi || t.created_at);
-          return tDate >= oneWeekAgo;
-        });
-      } else if (dateFilter === 'month') {
-        const oneMonthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-        transactions = transactions.filter((t) => {
-          const tDate = new Date(t.tgl_transaksi || t.created_at);
-          return tDate >= oneMonthAgo;
-        });
-      }
-
-      // Filter Toko/Cabang
-      if (branchFilter !== 'all') {
-        transactions = transactions.filter((t) => t.idToko === branchFilter || t.id_toko === branchFilter);
-      }
-
-      // Filter Status Pembayaran
-      if (paymentFilter === 'paid') {
-        transactions = transactions.filter((t) => Number(t.sisa) === 0);
-      } else if (paymentFilter === 'outstanding') {
-        transactions = transactions.filter((t) => Number(t.sisa) > 0);
-      }
-
-      setFilteredTrx(transactions);
-
-      // Kalkulasi Agregasi Finansial Ledger
-      let totalRevenue = 0;
-      let totalDp = 0;
-      let totalOutstanding = 0;
-
-      transactions.forEach((t) => {
-        totalRevenue += Number(t.grand_total || 0);
-        totalDp += Number(t.dp || 0);
-        totalOutstanding += Number(t.sisa || 0);
-      });
-
-      setSummary({
-        count: transactions.length,
-        revenue: totalRevenue,
-        dpCollected: totalDp,
-        outstanding: totalOutstanding,
-      });
-
-    } catch (error) {
-      console.error("Gagal kalkulasi data laporan keuangan:", error);
-    }
-  };
+  }, [router, loadCloudReports]);
 
   const handlePrint = () => {
     window.print();
@@ -149,7 +163,7 @@ export default function FinancialReports() {
     <div className="space-y-8 print:bg-white print:text-black">
 
       {/* Reports Header */}
-      <div className="flex justify-between items-center border-b border-slate-700 pb-5">
+      <div className="flex justify-between items-center border-b border-slate-700 pb-5 print:border-slate-300">
         <div>
           <span className="text-xs font-bold uppercase tracking-widest text-sky-400 block mb-1 print:hidden">
             REKAPITULASI TRANSAKSI
@@ -222,29 +236,29 @@ export default function FinancialReports() {
 
       {/* Aggregated Summaries Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-slate-800 rounded-3xl p-6 border border-slate-700/80 shadow-md print:border-slate-300 print:bg-white">
+        <div className="bg-slate-800 rounded-3xl p-6 border border-slate-700/80 shadow-md print:border-slate-300 print:bg-white print:text-black">
           <span className="text-xs font-bold text-slate-400 block mb-1">Orders Count</span>
           <span className="text-3xl font-black text-white print:text-black">{summary.count} Orders</span>
         </div>
 
-        <div className="bg-slate-800 rounded-3xl p-6 border border-slate-700/80 shadow-md print:border-slate-300 print:bg-white">
+        <div className="bg-slate-800 rounded-3xl p-6 border border-slate-700/80 shadow-md print:border-slate-300 print:bg-white print:text-black">
           <span className="text-xs font-bold text-slate-400 block mb-1">Revenue Total</span>
           <span className="text-3xl font-black text-sky-400 print:text-sky-600">IDR {summary.revenue.toLocaleString()}</span>
         </div>
 
-        <div className="bg-slate-800 rounded-3xl p-6 border border-slate-700/80 shadow-md print:border-slate-300 print:bg-white">
+        <div className="bg-slate-800 rounded-3xl p-6 border border-slate-700/80 shadow-md print:border-slate-300 print:bg-white print:text-black">
           <span className="text-xs font-bold text-slate-400 block mb-1">Down Payments (DP)</span>
           <span className="text-3xl font-black text-emerald-400 print:text-emerald-600">IDR {summary.dpCollected.toLocaleString()}</span>
         </div>
 
-        <div className="bg-slate-800 rounded-3xl p-6 border border-slate-700/80 shadow-md print:border-slate-300 print:bg-white">
+        <div className="bg-slate-800 rounded-3xl p-6 border border-slate-700/80 shadow-md print:border-slate-300 print:bg-white print:text-black">
           <span className="text-xs font-bold text-slate-400 block mb-1">Remaining Sisa</span>
           <span className="text-3xl font-black text-rose-400 print:text-rose-600">IDR {summary.outstanding.toLocaleString()}</span>
         </div>
       </div>
 
       {/* Detailed Transactions Table */}
-      <div className="bg-slate-800 rounded-3xl p-6 border border-slate-700/80 shadow-md print:border-slate-300 print:bg-white">
+      <div className="bg-slate-800 rounded-3xl p-6 border border-slate-700/80 shadow-md print:border-slate-300 print:bg-white print:text-black">
         <h3 className="text-base font-extrabold text-white border-b border-slate-700 pb-3 mb-4 print:text-black print:border-slate-200">
           Transaction Details Ledger
         </h3>
@@ -272,24 +286,22 @@ export default function FinancialReports() {
                 </tr>
               ) : (
                 filteredTrx.map((trx) => {
-                  const trxBranchId = trx.idToko || trx.id_toko;
-                  const trxCustomerId = trx.idPelanggan || trx.id_pelanggan;
-
-                  const shop = db.toko.find((t) => (t.id_toko || t.idToko) === trxBranchId);
-                  const customer = db.pelanggan.find((p) => (p.id_pelanggan || p.idPelanggan) === trxCustomerId);
-                  const dateString = trx.tgl_transaksi || trx.created_at;
+                  const shop = db.toko.find((t) => (t.id_toko || t.idToko) === trx.id_toko);
+                  const customer = db.pelanggan.find((p) => (p.id_pelanggan || p.idPelanggan) === trx.id_pelanggan);
 
                   return (
-                    <tr key={trx.no_struk || trx.id} className="hover:bg-slate-700/30 transition-colors">
-                      <td className="py-3 px-2">{dateString ? new Date(dateString).toLocaleDateString() : '-'}</td>
-                      <td className="py-3 px-2 font-mono font-bold text-sky-400">{trx.no_struk || 'N/A'}</td>
+                    <tr key={trx.no_struk} className="hover:bg-slate-700/30 transition-colors">
+                      <td className="py-3 px-2">{trx.tgl_transaksi ? new Date(trx.tgl_transaksi).toLocaleDateString() : '-'}</td>
+                      <td className="py-3 px-2 font-mono font-bold text-sky-400">{trx.no_struk}</td>
                       <td className="py-3 px-2 text-slate-400 print:text-slate-500">{shop ? shop.nama_toko : 'Pusat'}</td>
-                      <td className="py-3 px-2 font-bold text-white print:text-black">{customer ? customer.nama_pelanggan : 'Umum'}</td>
-                      <td className="py-3 px-2 font-bold">IDR {Number(trx.grand_total || 0).toLocaleString()}</td>
-                      <td className="py-3 px-2 text-emerald-400 print:text-emerald-600">IDR {Number(trx.dp || 0).toLocaleString()}</td>
+                      <td className="py-3 px-2 font-bold text-white print:text-black">
+                        {customer ? (customer.nama_pelanggan || customer.nama) : 'Umum'}
+                      </td>
+                      <td className="py-3 px-2 font-bold">IDR {trx.grand_total.toLocaleString()}</td>
+                      <td className="py-3 px-2 text-emerald-400 print:text-emerald-600">IDR {trx.dp.toLocaleString()}</td>
                       <td className="py-3 px-2">
-                        <span className={Number(trx.sisa || 0) > 0 ? 'text-rose-400 font-bold print:text-rose-600' : 'text-slate-500'}>
-                          IDR {Number(trx.sisa || 0).toLocaleString()}
+                        <span className={trx.sisa > 0 ? 'text-rose-400 font-bold print:text-rose-600' : 'text-slate-500'}>
+                          IDR {trx.sisa.toLocaleString()}
                         </span>
                       </td>
                       <td className="py-3 px-2">
@@ -297,7 +309,7 @@ export default function FinancialReports() {
                           ? 'bg-emerald-950/50 text-emerald-300 border border-emerald-800 print:bg-emerald-100 print:text-emerald-800'
                           : 'bg-sky-950/50 text-sky-300 border border-sky-800 print:bg-sky-100 print:text-sky-800'
                           }`}>
-                          {trx.status || 'Pickup'}
+                          {trx.status}
                         </span>
                       </td>
                     </tr>
