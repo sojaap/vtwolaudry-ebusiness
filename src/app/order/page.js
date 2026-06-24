@@ -38,8 +38,18 @@ function OrderCalculatorContent() {
 
       const data = {
         layanan: layananData,
-        toko: [{ idToko: 'TKO001', nama_toko: 'VTwo Laundry Pusat' }],
-        parfum: [{ idParfum: 'PRF001', nama_parfum: 'Downty Mist', stok_tersedia: 10 }],
+        toko: [
+          { idToko: 'TKO001', nama_toko: 'VTwo Laundry Depok' },
+          { idToko: 'TKO002', nama_toko: 'VTwo Laundry Jakarta' },
+          { idToko: 'TKO003', nama_toko: 'VTwo Laundry Bandung' },
+          { idToko: 'TKO004', nama_toko: 'VTwo Laundry Bogor' }
+        ],
+        parfum: [
+          { idParfum: 'PRF001', nama_parfum: 'Downty Mist', stok_tersedia: 10 },
+          { idParfum: 'PRF002', nama_parfum: 'Sweet Flower Mist', stok_tersedia: 30 },
+          { idParfum: 'PRF003', nama_parfum: 'Sandal Wood', stok_tersedia: 20 },
+          { idParfum: 'PRF004', nama_parfum: 'Rose Mist', stok_tersedia: 15 }
+        ],
         kasir: [{ idKasir: 'KSR001' }],
         pelanggan: []
       };

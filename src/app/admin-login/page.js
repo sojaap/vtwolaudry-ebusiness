@@ -48,7 +48,7 @@ export default function AdminLoginPage() {
             <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-gradient-to-tr from-sky-400 to-sky-200 text-white font-bold mb-4 shadow-md shadow-sky-200 text-lg">
               V2
             </div>
-            <h1 className="text-2xl font-black text-slate-800 tracking-tight">Staff / Owner Portal</h1>
+            <h1 className="text-2xl font-black text-slate-800 tracking-tight">Staff Portal</h1>
             <p className="text-xs text-slate-400 mt-2 max-w-xs mx-auto">
               Sign in using cashier or owner credentials to manage laundry workflows.
             </p>

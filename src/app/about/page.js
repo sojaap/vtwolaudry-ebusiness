@@ -37,11 +37,9 @@ export default function AboutPage() {
 
             <div className="space-y-6 text-slate-600 leading-relaxed text-base">
               <p>
-                Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.
-              </p>
+                Welcome to VTwo Laundry! Established in 2023, we are dedicated to providing practical, premium, and reliable solutions for your daily garment care. We understand that your clothes are an extension of your confidence and lifestyle. That is why we treat every single fabric with the utmost attention, combining efficiency with an exceptional standard of cleanliness.</p>
               <p>
-                Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo.
-              </p>
+                Over the years, we have continuously improved our services to ensure your laundry experience is seamless and worry-free. From refreshing your daily wear to handling delicate garments, our mission is to deliver perfectly clean, neatly pressed, and beautifully scented clothes right back to your wardrobe.</p>
               <p className="font-semibold text-sky-600">
                 At VTwo Laundry, we believe in providing top tier washing care. Our team operates standard, state of the art equipment ensuring each garment is pristine, fresh, and meticulously handled.
               </p>
