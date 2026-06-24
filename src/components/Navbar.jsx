@@ -14,9 +14,11 @@ export default function Navbar() {
     const getInitialSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
+        const assignedRole = session.user.email === 'admin@vtwolaundry.com' ? 'admin' : 'customer';
+
         setCurrentUser({
-          name: session.user.user_metadataSnapshot?.name || session.user.email.split('@')[0],
-          role: 'customer'
+          name: session.user.user_metadata?.name || session.user.email.split('@')[0],
+          role: assignedRole
         });
       } else {
         setCurrentUser(null);
@@ -27,9 +29,11 @@ export default function Navbar() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
+        const assignedRole = session.user.email === 'admin@vtwolaundry.com' ? 'admin' : 'customer';
+
         setCurrentUser({
           name: session.user.user_metadata?.name || session.user.email.split('@')[0],
-          role: 'customer'
+          role: assignedRole
         });
       } else {
         setCurrentUser(null);

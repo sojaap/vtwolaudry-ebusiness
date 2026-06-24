@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
-import { login } from '@/db/mockDb';
+import { supabase } from '@/db/supabaseClient';
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -13,26 +13,29 @@ export default function AdminLoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  const handleAdminLogin = (e) => {
+  const handleAdminLogin = async (e) => {
     e.preventDefault();
     setErrorMsg('');
 
-    const user = login(username, password, 'admin');
-    if (user) {
-      if (user.role === 'owner') {
-        router.push('/admin');
-      } else if (user.role === 'cashier') {
-        router.push('/admin/transactions');
-      }
-      router.refresh();
-    } else {
-      setErrorMsg('Invalid staff credentials. Please check your username and password.');
-    }
-  };
+    try {
+      const targetEmail = username.includes('@') ? username : `${username.toLowerCase()}@vtwolaundry.com`;
 
-  const handleQuickFill = (uname) => {
-    setUsername(uname);
-    setPassword('123');
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: targetEmail,
+        password: password,
+      });
+
+      if (error) {
+        setErrorMsg('Invalid staff credentials. Please check your username and password.');
+        return;
+      }
+
+      router.push('/admin/transactions');
+      router.refresh();
+    } catch (err) {
+      console.error('Staff auth gateway error:', err);
+      setErrorMsg('Database connection error. Please try again.');
+    }
   };
 
   return (
@@ -40,7 +43,6 @@ export default function AdminLoginPage() {
       <Navbar />
 
       <main className="flex-grow flex items-center justify-center py-10 px-4">
-        {/* Proper White Card */}
         <div className="bg-white rounded-3xl p-10 max-w-lg w-full border-2 border-slate-200 shadow-xl space-y-6 my-8">
           <div className="text-center">
             <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-gradient-to-tr from-sky-400 to-sky-200 text-white font-bold mb-4 shadow-md shadow-sky-200 text-lg">
@@ -59,7 +61,6 @@ export default function AdminLoginPage() {
           )}
 
           <form onSubmit={handleAdminLogin} className="space-y-5">
-            {/* White input for high-contrast visibility */}
             <div>
               <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
                 Username / ID
@@ -102,7 +103,7 @@ export default function AdminLoginPage() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-4 flex items-center text-slate-450 hover:text-slate-700"
+                  className="absolute inset-y-0 right-0 pr-4 flex items-center text-slate-400 hover:text-slate-700"
                 >
                   {showPassword ? (
                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -120,41 +121,11 @@ export default function AdminLoginPage() {
 
             <button
               type="submit"
-              className="w-full py-3.5 bg-sky-500 hover:bg-sky-600 text-white font-semibold rounded-2xl shadow-lg shadow-sky-100 transition-all text-sm tracking-wide"
+              className="w-full py-4 bg-sky-500 hover:bg-sky-600 text-white font-semibold rounded-2xl shadow-lg shadow-sky-100 transition-all text-sm tracking-wide"
             >
               Access Terminal
             </button>
           </form>
-
-          {/* Quick Fills */}
-          <div className="border-t border-slate-100 pt-6 space-y-3">
-            <span className="block text-[10px] font-bold text-slate-400 uppercase text-center tracking-widest">
-              Demo Accounts (Quick Access)
-            </span>
-            <div className="grid grid-cols-3 gap-3">
-              <button
-                type="button"
-                onClick={() => handleQuickFill('owner')}
-                className="px-2.5 py-2 border-2 border-slate-200 hover:bg-sky-50 hover:text-sky-600 rounded-xl text-[10px] font-bold text-slate-600 transition-all shadow-sm"
-              >
-                Owner
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickFill('andi')}
-                className="px-2.5 py-2 border-2 border-slate-200 hover:bg-sky-50 hover:text-sky-600 rounded-xl text-[10px] font-bold text-slate-600 transition-all shadow-sm"
-              >
-                Andi (Cashier)
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickFill('dewi')}
-                className="px-2.5 py-2 border-2 border-slate-200 hover:bg-sky-50 hover:text-sky-600 rounded-xl text-[10px] font-bold text-slate-600 transition-all shadow-sm"
-              >
-                Dewi (Cashier)
-              </button>
-            </div>
-          </div>
         </div>
       </main>
 
