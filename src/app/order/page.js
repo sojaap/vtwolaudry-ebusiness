@@ -39,10 +39,7 @@ function OrderCalculatorContent() {
       const data = {
         layanan: layananData,
         toko: [
-          { idToko: 'TKO001', nama_toko: 'VTwo Laundry Depok' },
-          { idToko: 'TKO002', nama_toko: 'VTwo Laundry Jakarta' },
-          { idToko: 'TKO003', nama_toko: 'VTwo Laundry Bandung' },
-          { idToko: 'TKO004', nama_toko: 'VTwo Laundry Bogor' }
+          { idToko: 'TKO001', nama_toko: 'VTwo Laundry Pusat' },
         ],
         parfum: [
           { idParfum: 'PRF001', nama_parfum: 'Downty Mist', stok_tersedia: 10 },
