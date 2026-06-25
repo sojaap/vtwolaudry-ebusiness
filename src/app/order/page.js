@@ -18,6 +18,8 @@ function OrderCalculatorContent() {
   const [deliveryType, setDeliveryType] = useState('Self Pickup');
   const [deliveryAddress, setDeliveryAddress] = useState('');
 
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+
   // Customer details inputs
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
@@ -57,6 +59,7 @@ function OrderCalculatorContent() {
       if (data.parfum.length > 0) setSelectedParfum(data.parfum[0].idParfum);
 
       const { data: { session } } = await supabase.auth.getSession();
+
       if (session?.user) {
         const activeUser = {
           id: session.user.id,
@@ -67,6 +70,10 @@ function OrderCalculatorContent() {
         setCurrentUser(activeUser);
         setCustomerName(activeUser.name);
         setCustomerPhone(activeUser.phone);
+        setIsCheckingAuth(false);
+      } else {
+        router.push('/login');
+        return;
       }
 
       const pkgParam = searchParams.get('package');
@@ -83,7 +90,15 @@ function OrderCalculatorContent() {
     }
 
     initData();
-  }, [searchParams]);
+  }, [searchParams, router]);
+
+  if (isCheckingAuth) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-[#ECF9FF]">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-sky-500"></div>
+      </div>
+    );
+  }
 
   if (!db) {
     return (
